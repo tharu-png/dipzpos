@@ -1,0 +1,19 @@
+{
+  "name": "DIPZ POS",
+  "short_name": "DIPZ",
+  "description": "Offline point of sale for DIPZ cart",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f1e8",
+  "theme_color": "#321b10",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/dipz-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
