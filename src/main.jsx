@@ -1,6 +1,28 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  ArcElement,
+  BarController,
+  BarElement,
+  CategoryScale,
+  Chart,
+  DoughnutController,
+  Legend,
+  LinearScale,
+  Tooltip,
+} from "chart.js";
 import "./styles.css";
+
+Chart.register(
+  ArcElement,
+  BarController,
+  BarElement,
+  CategoryScale,
+  DoughnutController,
+  Legend,
+  LinearScale,
+  Tooltip,
+);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -221,6 +243,8 @@ function Nav({ screen, setScreen }) {
 function App() {
   const [state, setState] = useState(loadState);
   const [screen, setScreen] = useState("sell");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
   const [adminMode, setAdminMode] = useState(false);
   const [adminPinEntry, setAdminPinEntry] = useState("");
   const [opening, setOpening] = useState("");
@@ -270,6 +294,17 @@ function App() {
   const cashReceived = Number(state.cashReceived);
   const stockRemaining =
     state.stock.remaining === "" ? null : Number(state.stock.remaining);
+  const catalogProducts = PRODUCTS.filter((product) => {
+    const matchesSearch = `${product.name} ${product.code}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesCategory =
+      category === "all" ||
+      (category === "banana" && ["standard", "premium"].includes(product.id)) ||
+      (category === "ice" && ["dragonfruit", "coconut"].includes(product.id)) ||
+      (category === "treat" && product.id === "marshmallow");
+    return matchesSearch && matchesCategory;
+  });
 
   const update = (patch) => setState((current) => ({ ...current, ...patch }));
   const notify = (message) => setToast(message);
@@ -535,17 +570,17 @@ function App() {
   };
 
   return (
-    <>
-      <header className="app-header">
-        <div className="header-row">
-          <div>
-            <h1 className="brand">DIPZ</h1>
-            <p className="date-label">{dateLabel(state.activeDate)}</p>
-          </div>
-          <span className="offline-badge">OFFLINE READY</span>
-        </div>
+    <div className="app-shell">
+      <aside className="side-rail">
+        <div className="rail-brand"><h1 className="brand">DIPZ</h1><span>Cart POS</span></div>
         <Nav screen={screen} setScreen={setScreen} />
-      </header>
+        <div className="rail-footer"><span className="offline-dot" /> Offline ready</div>
+      </aside>
+      <div className="workspace">
+        <header className="workspace-topbar">
+          <div className="toolbar-search-group"><label className="global-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products..." /></label><button className="filter-button" type="button" onClick={() => setCategory("all")}>⌘ <span>Filter</span></button></div>
+          <div className="topbar-meta"><span className="date-label">{dateLabel(state.activeDate)}</span><span className="user-chip"><span className="user-avatar">D</span><span><strong>DIPZ staff</strong><small>Cart operator</small></span></span></div>
+        </header>
       {storageError && (
         <div className="storage-notice visible">
           Local storage is unavailable. Keep this page open until storage is
@@ -558,6 +593,9 @@ function App() {
             state={state}
             setState={setState}
             products={PRODUCTS}
+            catalogProducts={catalogProducts}
+            category={category}
+            setCategory={setCategory}
             stockRemaining={stockRemaining}
             cartItems={cartItems}
             cartTotal={cartTotal}
@@ -604,7 +642,8 @@ function App() {
           <div className="toast visible">{toast}</div>
         </div>
       )}
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -612,6 +651,9 @@ function SellScreen({
   state,
   setState,
   products,
+  catalogProducts,
+  category,
+  setCategory,
   stockRemaining,
   cartItems,
   cartTotal,
@@ -662,10 +704,13 @@ function SellScreen({
                 Tap a product to add it to the current bill.
               </p>
             </div>
-            <span className="quiet">{products.length} items</span>
+            <span className="quiet">{products.length} products</span>
+          </div>
+          <div className="category-tabs">
+            {[['all', 'All'], ['banana', 'Bananas'], ['ice', 'Ice cream'], ['treat', 'Treats']].map(([id, label]) => <button key={id} className={category === id ? 'selected' : ''} onClick={() => setCategory(id)}>{label}</button>)}
           </div>
           <div className="catalog-grid">
-            {products.map((product) => {
+            {catalogProducts.map((product) => {
               const balance = state.stock.products?.[product.id]?.remaining;
               const disabled =
                 balance !== undefined && balance !== "" && Number(balance) <= 0;
@@ -683,10 +728,12 @@ function SellScreen({
                     {money(state.settings[product.priceKey])}
                     {disabled && " · Sold out"}
                   </span>
+                  {!disabled && <span className="product-card-cta">Add to cart</span>}
                 </button>
               );
             })}
           </div>
+          {!catalogProducts.length && <div className="empty-state">No products match this search.</div>}
           {lowStock.length > 0 && (
             <div className="stock-alert">Low stock: {lowStock.join(" · ")}</div>
           )}
@@ -1026,6 +1073,8 @@ function HistoryScreen({ history, setReceipt }) {
   );
 }
 function Reports({ orders }) {
+  const productChartRef = useRef(null);
+  const paymentChartRef = useRef(null);
   const report = orders.reduce(
     (result, order) => {
       if (order.status === "refunded") {
@@ -1043,43 +1092,51 @@ function Reports({ orders }) {
     },
     { refunds: 0, products: {}, payments: {} },
   );
+  const activeOrders = orders.filter((order) => order.status !== "refunded");
+  const netSales = totals(orders).revenue;
+  const averageOrder = activeOrders.length ? netSales / activeOrders.length : 0;
+
+  useEffect(() => {
+    const productChart = new Chart(productChartRef.current, {
+      type: "bar",
+      data: {
+        labels: PRODUCTS.map((product) => product.name.replace("Chocolate ", "")),
+        datasets: [{
+          data: PRODUCTS.map((product) => report.products[product.id] || 0),
+          backgroundColor: ["#3a2419", "#c37c32", "#e88c98", "#9d816a", "#e4a735"],
+          borderRadius: 8,
+          borderSkipped: false,
+          barThickness: 28,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { displayColors: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: "#77675b", font: { size: 11 } } },
+          y: { beginAtZero: true, grid: { color: "#eee5db" }, ticks: { precision: 0, color: "#77675b" } },
+        },
+      },
+    });
+    const paymentLabels = Object.keys(report.payments);
+    const paymentChart = new Chart(paymentChartRef.current, {
+      type: "doughnut",
+      data: {
+        labels: paymentLabels.length ? paymentLabels.map((method) => method[0].toUpperCase() + method.slice(1)) : ["No payments"],
+        datasets: [{ data: paymentLabels.length ? paymentLabels.map((method) => report.payments[method]) : [1], backgroundColor: ["#3a2419", "#e4a735", "#f5a06b"], borderWidth: 0, hoverOffset: 4 }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "68%", plugins: { legend: { position: "bottom", labels: { color: "#77675b", usePointStyle: true, padding: 16 } } } },
+    });
+    return () => { productChart.destroy(); paymentChart.destroy(); };
+  }, [orders, report.payments, report.products]);
+
   return (
-    <section className="page">
-      <h2 className="section-heading">Today's report</h2>
-      <div className="panel">
-        <div className="summary-grid">
-          <Summary
-            label="Net sales"
-            value={money(totals(orders).revenue)}
-            wide
-          />
-          <Summary
-            label="Receipts"
-            value={orders.filter((order) => order.status !== "refunded").length}
-          />
-          <Summary label="Refunds" value={money(report.refunds)} />
-        </div>
-      </div>
-      <div className="panel">
-        <h3 className="subheading">Product sales</h3>
-        {Object.entries(report.products).map(([id, quantity]) => (
-          <div className="report-line" key={id}>
-            <span>
-              {PRODUCTS.find((product) => product.id === id)?.name || id}
-            </span>
-            <strong>{quantity}</strong>
-          </div>
-        ))}
-      </div>
-      <div className="panel">
-        <h3 className="subheading">Payments</h3>
-        {Object.entries(report.payments).map(([method, amount]) => (
-          <div className="report-line" key={method}>
-            <span>{method}</span>
-            <strong>{money(amount)}</strong>
-          </div>
-        ))}
-      </div>
+    <section className="page reports-page">
+      <div className="reports-heading"><div><span className="eyebrow">Performance overview</span><h2 className="section-heading">Today's report</h2><p className="quiet">A live view of the shift, built from completed local receipts.</p></div><span className="report-date">{dateLabel(todayKey())}</span></div>
+      <div className="report-kpis"><div className="report-kpi accent"><span>Net sales</span><strong>{money(netSales)}</strong><small>After refunds</small></div><div className="report-kpi"><span>Receipts</span><strong>{activeOrders.length}</strong><small>Completed today</small></div><div className="report-kpi"><span>Average order</span><strong>{money(averageOrder)}</strong><small>Per receipt</small></div><div className="report-kpi"><span>Refunds</span><strong>{money(report.refunds)}</strong><small>Admin actions</small></div></div>
+      <div className="report-chart-grid"><section className="report-chart-card"><div className="report-card-heading"><div><span className="eyebrow">Volume</span><h3>Product sales</h3></div><span className="chart-unit">Units</span></div><div className="chart-wrap"><canvas ref={productChartRef} /></div></section><section className="report-chart-card"><div className="report-card-heading"><div><span className="eyebrow">Tender mix</span><h3>Payments</h3></div><span className="chart-unit">Value</span></div><div className="chart-wrap doughnut"><canvas ref={paymentChartRef} /></div></section></div>
+      <section className="panel report-detail-panel"><div className="report-card-heading"><div><span className="eyebrow">Breakdown</span><h3>Product detail</h3></div><span className="quiet">{PRODUCTS.length} products</span></div>{PRODUCTS.map((product) => <div className="report-line" key={product.id}><span><strong>{product.name}</strong><small>{product.code}</small></span><strong>{report.products[product.id] || 0} sold</strong></div>)}</section>
     </section>
   );
 }
