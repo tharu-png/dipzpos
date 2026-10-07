@@ -1103,7 +1103,7 @@ function Reports({ orders }) {
         labels: PRODUCTS.map((product) => product.name.replace("Chocolate ", "")),
         datasets: [{
           data: PRODUCTS.map((product) => report.products[product.id] || 0),
-          backgroundColor: ["#3a2419", "#c37c32", "#e88c98", "#9d816a", "#e4a735"],
+          backgroundColor: ["#facc15", "#f59e0b", "#fde047", "#eab308", "#d97706"],
           borderRadius: 8,
           borderSkipped: false,
           barThickness: 28,
@@ -1114,8 +1114,8 @@ function Reports({ orders }) {
         maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { displayColors: false } },
         scales: {
-          x: { grid: { display: false }, ticks: { color: "#77675b", font: { size: 11 } } },
-          y: { beginAtZero: true, grid: { color: "#eee5db" }, ticks: { precision: 0, color: "#77675b" } },
+          x: { grid: { display: false }, ticks: { color: "#94a3b8", font: { size: 11 } } },
+          y: { beginAtZero: true, grid: { color: "rgba(255, 255, 255, 0.08)" }, ticks: { precision: 0, color: "#94a3b8" } },
         },
       },
     });
@@ -1124,9 +1124,9 @@ function Reports({ orders }) {
       type: "doughnut",
       data: {
         labels: paymentLabels.length ? paymentLabels.map((method) => method[0].toUpperCase() + method.slice(1)) : ["No payments"],
-        datasets: [{ data: paymentLabels.length ? paymentLabels.map((method) => report.payments[method]) : [1], backgroundColor: ["#3a2419", "#e4a735", "#f5a06b"], borderWidth: 0, hoverOffset: 4 }],
+        datasets: [{ data: paymentLabels.length ? paymentLabels.map((method) => report.payments[method]) : [1], backgroundColor: ["#facc15", "#f59e0b", "#eab308"], borderWidth: 0, hoverOffset: 4 }],
       },
-      options: { responsive: true, maintainAspectRatio: false, cutout: "68%", plugins: { legend: { position: "bottom", labels: { color: "#77675b", usePointStyle: true, padding: 16 } } } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "68%", plugins: { legend: { position: "bottom", labels: { color: "#94a3b8", usePointStyle: true, padding: 16 } } } },
     });
     return () => { productChart.destroy(); paymentChart.destroy(); };
   }, [orders, report.payments, report.products]);
