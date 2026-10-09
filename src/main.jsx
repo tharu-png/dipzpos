@@ -283,21 +283,31 @@ async function triggerSpreadsheetSync(orders, stock, settings) {
   let googleSuccess = false;
   let errorMsg = null;
 
-  try {
-    const url = settings.syncServerUrl || "/api/sync-excel";
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      localSuccess = true;
-    } else {
-      const data = await res.json().catch(() => ({}));
-      errorMsg = data.error || "Sync server returned error";
+  const candidateUrls = [
+    settings.syncServerUrl,
+    "/api/sync-excel",
+    "http://localhost:3001/api/sync-excel",
+  ].filter(Boolean);
+  const uniqueUrls = [...new Set(candidateUrls)];
+
+  for (const url of uniqueUrls) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        localSuccess = true;
+        errorMsg = null;
+        break;
+      } else {
+        const data = await res.json().catch(() => ({}));
+        errorMsg = data.error || "Sync server returned error";
+      }
+    } catch (err) {
+      errorMsg = err.message || "Failed to reach sync server";
     }
-  } catch (err) {
-    errorMsg = err.message || "Failed to reach sync server";
   }
 
   if (settings.googleSheetsUrl && settings.googleSheetsUrl.trim()) {
@@ -341,16 +351,26 @@ function App() {
   });
 
   useEffect(() => {
-    fetch("/api/spreadsheet-status")
-      .then((res) => res.json())
-      .then((data) => {
-        setSyncInfo((prev) => ({
-          ...prev,
-          connected: data.connected || false,
-          localExcelExists: data.localExcelExists || false,
-        }));
-      })
-      .catch(() => undefined);
+    const checkEndpoints = ["/api/spreadsheet-status", "http://localhost:3001/api/spreadsheet-status"];
+    const runCheck = async () => {
+      for (const ep of checkEndpoints) {
+        try {
+          const res = await fetch(ep);
+          if (res.ok) {
+            const data = await res.json();
+            setSyncInfo((prev) => ({
+              ...prev,
+              connected: data.connected || false,
+              localExcelExists: data.localExcelExists || false,
+            }));
+            break;
+          }
+        } catch {
+          // try next endpoint
+        }
+      }
+    };
+    runCheck();
   }, []);
 
   const handleSync = async (customOrders = state.orders, customStock = state.stock) => {
