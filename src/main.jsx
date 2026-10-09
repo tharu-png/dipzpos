@@ -356,6 +356,7 @@ function App() {
     connected: false,
     localExcelExists: false,
   });
+  const [storageError, setStorageError] = useState(false);
 
   useEffect(() => {
     const checkEndpoints = ["/api/spreadsheet-status", "http://localhost:3001/api/spreadsheet-status"];
