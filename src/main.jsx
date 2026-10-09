@@ -25,9 +25,16 @@ Chart.register(
 );
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const r of registrations) {
+      r.unregister();
+    }
   });
+  if ("caches" in window) {
+    caches.keys().then((names) => {
+      for (const name of names) caches.delete(name);
+    });
+  }
 }
 
 const STORAGE_KEY = "dipz-pos-state-v1";
