@@ -523,20 +523,24 @@ function App() {
         { started: count, remaining: count },
       ]),
     );
+    const newStock = {
+      ...state.stock,
+      started: String(value),
+      remaining: String(value),
+      closing: "",
+      products,
+      locked: true,
+      submitted: false,
+    };
     setState((current) => ({
       ...current,
-      stock: {
-        ...current.stock,
-        started: String(value),
-        remaining: String(value),
-        closing: "",
-        products,
-        locked: true,
-        submitted: false,
-      },
+      stock: newStock,
     }));
     finishAdmin();
     notify("Opening stock saved and admin controls locked.");
+    if (state.settings.autoSyncEnabled !== false) {
+      handleSync(state.orders, newStock);
+    }
   };
   const submitClosing = () => {
     const value = Number(closing);
@@ -546,12 +550,16 @@ function App() {
       value > Number(state.stock.started)
     )
       return notify("Enter a valid closing banana count.");
+    const newStock = { ...state.stock, closing: String(value), submitted: true };
     setState((current) => ({
       ...current,
-      stock: { ...current.stock, closing: String(value), submitted: true },
+      stock: newStock,
     }));
     finishAdmin();
     notify("Closing count submitted and admin controls locked.");
+    if (state.settings.autoSyncEnabled !== false) {
+      handleSync(state.orders, newStock);
+    }
   };
   const checkout = () => {
     if (!state.cart.length) return;
@@ -622,19 +630,23 @@ function App() {
     if (!adminMode)
       return notify("Admin must unlock controls in Settings before refunds.");
     if (!window.confirm(`Refund ${orderId}?`)) return;
+    const updatedOrders = state.orders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            status: "refunded",
+            refundedAt: new Date().toISOString(),
+          }
+        : order,
+    );
     update({
-      orders: state.orders.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: "refunded",
-              refundedAt: new Date().toISOString(),
-            }
-          : order,
-      ),
+      orders: updatedOrders,
     });
     finishAdmin();
     notify(`${orderId} marked as refunded.`);
+    if (state.settings.autoSyncEnabled !== false) {
+      handleSync(updatedOrders, state.stock);
+    }
   };
   const finishDay = () => {
     if (state.cart.length) return notify("Checkout the current bill first.");

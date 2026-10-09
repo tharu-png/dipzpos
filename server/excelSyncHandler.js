@@ -86,6 +86,16 @@ export async function updateExcelTracker(payload) {
   // Col 10: Notes
   row.getCell(10).value = payload.notes || `Live POS sync (${new Date().toLocaleTimeString('en-LK')})`;
 
+  // Formulas for calculated columns (Cols 11-17)
+  const r = targetRowNumber;
+  row.getCell(11).value = { formula: `IF($A${r}="","",C${r}+D${r})` };
+  row.getCell(12).value = { formula: `IF($A${r}="","",C${r}*SUMIFS(Settings!$B$21:$B$25,Settings!$A$21:$A$25,SUMPRODUCT(MAX((Settings!$A$21:$A$25<=$A${r})*Settings!$A$21:$A$25)))+D${r}*SUMIFS(Settings!$C$21:$C$25,Settings!$A$21:$A$25,SUMPRODUCT(MAX((Settings!$A$21:$A$25<=$A${r})*Settings!$A$21:$A$25))))` };
+  row.getCell(13).value = { formula: `IF($A${r}="","",L${r}*IFERROR(INDEX(Settings!$B$30:$B$36,MATCH($B${r},Settings!$A$30:$A$36,0)),0))` };
+  row.getCell(14).value = { formula: `IF(OR($A${r}="",F${r}="",G${r}=""),"",(F${r}-G${r})-(K${r}+E${r}))` };
+  row.getCell(15).value = { formula: `IF(N${r}="","",IF(N${r}=0,"OK","CHECK"))` };
+  row.getCell(16).value = { formula: `IF(OR($A${r}="",AND(H${r}="",I${r}="")),"",H${r}+I${r}-L${r})` };
+  row.getCell(17).value = { formula: `IF(P${r}="","",IF(P${r}=0,"OK","CHECK"))` };
+
   row.commit();
   await wb.xlsx.writeFile(FILE_PATH);
   
