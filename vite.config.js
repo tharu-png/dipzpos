@@ -78,6 +78,7 @@ function excelSyncPlugin() {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [react(), excelSyncPlugin()],
   server: {
     host: true, // Expose to local store network so tablet can connect
