@@ -40,6 +40,10 @@ const DEFAULT_SETTINGS = {
   pack80Price: 80,
   sharePercent: 10,
   adminPin: "2468",
+  venueName: "Shakshuka Food Park",
+  syncServerUrl: "/api/sync-excel",
+  googleSheetsUrl: "",
+  autoSyncEnabled: true,
 };
 const PRODUCTS = [
   {
@@ -126,13 +130,15 @@ const cleanSettings = (settings) =>
   Object.fromEntries(
     Object.keys(DEFAULT_SETTINGS).map((key) => [
       key,
-      key === "adminPin"
-        ? typeof settings?.[key] === "string" && settings[key].length >= 4
+      ["adminPin", "venueName", "syncServerUrl", "googleSheetsUrl"].includes(key)
+        ? typeof settings?.[key] === "string"
           ? settings[key]
           : DEFAULT_SETTINGS[key]
-        : Number.isFinite(Number(settings?.[key]))
-          ? Number(settings[key])
-          : DEFAULT_SETTINGS[key],
+        : key === "autoSyncEnabled"
+          ? settings?.[key] !== undefined ? Boolean(settings[key]) : true
+          : Number.isFinite(Number(settings?.[key]))
+            ? Number(settings[key])
+            : DEFAULT_SETTINGS[key],
     ]),
   );
 const orderCount = (order) =>
@@ -240,6 +246,77 @@ function Nav({ screen, setScreen }) {
   );
 }
 
+async function triggerSpreadsheetSync(orders, stock, settings) {
+  const activeOrders = (orders || []).filter((o) => o.status !== "refunded");
+  let standardSold = 0;
+  let premiumSold = 0;
+  let cashCollected = 0;
+  let digitalCollected = 0;
+
+  activeOrders.forEach((o) => {
+    (o.items || []).forEach((item) => {
+      if (item.product === "standard") standardSold += Number(item.quantity || 0);
+      if (item.product === "premium") premiumSold += Number(item.quantity || 0);
+    });
+    const method = o.payment?.method || "cash";
+    if (method === "cash") {
+      cashCollected += Number(o.total || 0);
+    } else {
+      digitalCollected += Number(o.total || 0);
+    }
+  });
+
+  const payload = {
+    date: todayKey(),
+    venue: settings.venueName || "Shakshuka Food Park",
+    standardSold,
+    premiumSold,
+    freeUnits: 0,
+    startedStock: stock.started !== "" ? Number(stock.started) : null,
+    remainingStock: stock.remaining !== "" ? Number(stock.remaining) : null,
+    cashCollected,
+    digitalCollected,
+    notes: `POS sync at ${new Date().toLocaleTimeString("en-LK")}`,
+  };
+
+  let localSuccess = false;
+  let googleSuccess = false;
+  let errorMsg = null;
+
+  try {
+    const url = settings.syncServerUrl || "/api/sync-excel";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      localSuccess = true;
+    } else {
+      const data = await res.json().catch(() => ({}));
+      errorMsg = data.error || "Sync server returned error";
+    }
+  } catch (err) {
+    errorMsg = err.message || "Failed to reach sync server";
+  }
+
+  if (settings.googleSheetsUrl && settings.googleSheetsUrl.trim()) {
+    try {
+      await fetch(settings.googleSheetsUrl.trim(), {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      googleSuccess = true;
+    } catch {
+      // no-cors fetch
+    }
+  }
+
+  return { localSuccess, googleSuccess, errorMsg, time: new Date().toLocaleTimeString("en-LK") };
+}
+
 function App() {
   const [state, setState] = useState(loadState);
   const [screen, setScreen] = useState("sell");
@@ -256,7 +333,47 @@ function App() {
   });
   const [receipt, setReceipt] = useState(null);
   const [toast, setToast] = useState("");
-  const [storageError, setStorageError] = useState(false);
+  const [syncInfo, setSyncInfo] = useState({
+    status: "idle",
+    lastTime: null,
+    connected: false,
+    localExcelExists: false,
+  });
+
+  useEffect(() => {
+    fetch("/api/spreadsheet-status")
+      .then((res) => res.json())
+      .then((data) => {
+        setSyncInfo((prev) => ({
+          ...prev,
+          connected: data.connected || false,
+          localExcelExists: data.localExcelExists || false,
+        }));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const handleSync = async (customOrders = state.orders, customStock = state.stock) => {
+    setSyncInfo((prev) => ({ ...prev, status: "syncing" }));
+    const res = await triggerSpreadsheetSync(customOrders, customStock, state.settings);
+    if (res.localSuccess || res.googleSuccess) {
+      setSyncInfo((prev) => ({
+        ...prev,
+        status: "synced",
+        lastTime: res.time,
+        connected: true,
+      }));
+      notify("Synced with Excel Tracker!");
+    } else {
+      setSyncInfo((prev) => ({
+        ...prev,
+        status: "error",
+        errorMsg: res.errorMsg,
+      }));
+      notify("Excel sync failed. Check server endpoint.");
+    }
+    return res;
+  };
 
   useEffect(() => {
     try {
@@ -449,24 +566,29 @@ function App() {
         (["standard", "premium"].includes(item.product) ? item.quantity : 0),
       0,
     );
+    const newOrders = [...state.orders, order];
+    const newStock = {
+      ...state.stock,
+      remaining:
+        state.stock.remaining === ""
+          ? ""
+          : String(Math.max(0, Number(state.stock.remaining) - bananas)),
+      products,
+      closing: "",
+      submitted: false,
+    };
     update({
-      orders: [...state.orders, order],
+      orders: newOrders,
       cart: [],
       packaging: null,
       cashReceived: "",
-      stock: {
-        ...state.stock,
-        remaining:
-          state.stock.remaining === ""
-            ? ""
-            : String(Math.max(0, Number(state.stock.remaining) - bananas)),
-        products,
-        closing: "",
-        submitted: false,
-      },
+      stock: newStock,
     });
     setReceipt(order);
     notify(`${id} checked out.`);
+    if (state.settings.autoSyncEnabled !== false) {
+      handleSync(newOrders, newStock);
+    }
   };
   const refund = (orderId) => {
     if (!adminMode)
@@ -574,12 +696,22 @@ function App() {
       <aside className="side-rail">
         <div className="rail-brand"><h1 className="brand">DIPZ</h1><span>Cart POS</span></div>
         <Nav screen={screen} setScreen={setScreen} />
-        <div className="rail-footer"><span className="offline-dot" /> Offline ready</div>
+        <div className="rail-footer">
+          <span className="offline-dot" style={{ background: syncInfo.status === "synced" ? "#16a34a" : syncInfo.status === "syncing" ? "#eab308" : "#ca8a04" }} />
+          <span>{syncInfo.status === "synced" ? `Excel Synced (${syncInfo.lastTime})` : syncInfo.status === "syncing" ? "Syncing Excel..." : "Excel Sync Ready"}</span>
+        </div>
       </aside>
       <div className="workspace">
         <header className="workspace-topbar">
           <div className="toolbar-search-group"><label className="global-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products..." /></label><button className="filter-button" type="button" onClick={() => setCategory("all")}>⌘ <span>Filter</span></button></div>
-          <div className="topbar-meta"><span className="date-label">{dateLabel(state.activeDate)}</span><span className="user-chip"><span className="user-avatar">D</span><span><strong>DIPZ staff</strong><small>Cart operator</small></span></span></div>
+          <div className="topbar-meta">
+            <span className="report-date" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: syncInfo.status === "synced" ? "#16a34a" : "#eab308" }} />
+              <span>{syncInfo.status === "synced" ? "Excel Synced 🟢" : "Excel Tracker Ready"}</span>
+            </span>
+            <span className="date-label">{dateLabel(state.activeDate)}</span>
+            <span className="user-chip"><span className="user-avatar">D</span><span><strong>DIPZ staff</strong><small>Cart operator</small></span></span>
+          </div>
         </header>
       {storageError && (
         <div className="storage-notice visible">
@@ -633,6 +765,8 @@ function App() {
             finishAdmin={finishAdmin}
             exportData={exportData}
             importData={importData}
+            handleSync={handleSync}
+            syncInfo={syncInfo}
           />
         )}
       </main>
@@ -1159,10 +1293,76 @@ function Settings({
   finishAdmin,
   exportData,
   importData,
+  handleSync,
+  syncInfo,
 }) {
   return (
     <section className="page">
       <h2 className="section-heading">Settings</h2>
+
+      <div className="panel">
+        <h3 className="subheading">📊 Spreadsheet & Store Sync</h3>
+        <p className="quiet">
+          Automatically updates <code>DIPZ-Business-Tracker.xlsx</code> on the Admin Laptop whenever an order is marked on the store tablet.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", margin: "14px 0" }}>
+          <label className="field-label">
+            Venue Name
+            <input
+              type="text"
+              value={state.settings.venueName || "Shakshuka Food Park"}
+              onChange={(e) =>
+                setState((current) => ({
+                  ...current,
+                  settings: { ...current.settings, venueName: e.target.value },
+                }))
+              }
+            />
+          </label>
+          <label className="field-label">
+            Admin Laptop Sync Endpoint URL
+            <input
+              type="text"
+              placeholder="/api/sync-excel or http://192.168.1.XX:5173/api/sync-excel"
+              value={state.settings.syncServerUrl || "/api/sync-excel"}
+              onChange={(e) =>
+                setState((current) => ({
+                  ...current,
+                  settings: { ...current.settings, syncServerUrl: e.target.value },
+                }))
+              }
+            />
+          </label>
+          <label className="field-label">
+            Google Sheets Webhook URL (Optional)
+            <input
+              type="text"
+              placeholder="https://script.google.com/macros/s/..."
+              value={state.settings.googleSheetsUrl || ""}
+              onChange={(e) =>
+                setState((current) => ({
+                  ...current,
+                  settings: { ...current.settings, googleSheetsUrl: e.target.value },
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="button-row">
+          <button className="action-button primary" onClick={() => handleSync()}>
+            ⚡ Sync Excel Tracker Now
+          </button>
+          <a
+            className="action-button"
+            href="/api/download-excel"
+            download="DIPZ-Business-Tracker.xlsx"
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+          >
+            📥 Download Updated Excel (.xlsx)
+          </a>
+        </div>
+      </div>
       <div className="panel">
         <p className="quiet">Prices and revenue sharing apply to new bills.</p>
         <div className="form-grid two-col">
