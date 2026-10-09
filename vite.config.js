@@ -52,11 +52,9 @@ function excelSyncPlugin() {
 
         // 3. Sync Order / Daily Data to Excel
         if ((url === '/api/sync-excel' || url === '/api/sync-order') && req.method === 'POST') {
-          let body = '';
-          req.on('data', chunk => { body += chunk.toString(); });
-          req.on('end', async () => {
+          const processRequest = async (rawBody) => {
             try {
-              const payload = JSON.parse(body || '{}');
+              const payload = typeof rawBody === 'object' ? rawBody : JSON.parse(rawBody || '{}');
               const result = await updateExcelTracker(payload);
               res.statusCode = 200;
               res.setHeader('Content-Type', 'application/json');
@@ -67,7 +65,15 @@ function excelSyncPlugin() {
               res.setHeader('Content-Type', 'application/json');
               return res.end(JSON.stringify({ error: err.message || 'Failed to update Excel tracker' }));
             }
-          });
+          };
+
+          if (req.body) {
+            return processRequest(req.body);
+          }
+
+          let body = '';
+          req.on('data', chunk => { body += chunk.toString(); });
+          req.on('end', () => processRequest(body));
           return;
         }
 
