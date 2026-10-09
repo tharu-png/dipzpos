@@ -41,7 +41,7 @@ const DEFAULT_SETTINGS = {
   sharePercent: 10,
   adminPin: "2468",
   venueName: "Shakshuka Food Park",
-  syncServerUrl: "/api/sync-excel",
+  syncServerUrl: "http://localhost:3001/api/sync-excel",
   googleSheetsUrl: "",
   autoSyncEnabled: true,
 };

@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "node server/syncServer.js & vite --host 0.0.0.0",
+    "sync": "node server/syncServer.js",
     "build": "vite build",
     "preview": "vite preview"
   },
