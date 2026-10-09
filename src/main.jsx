@@ -1334,7 +1334,7 @@ function Settings({
             />
           </label>
           <label className="field-label">
-            Google Sheets Webhook URL (Optional)
+            Google Sheets Webhook URL (For Remote Sync from Store to Admin at Home)
             <input
               type="text"
               placeholder="https://script.google.com/macros/s/..."
@@ -1347,6 +1347,15 @@ function Settings({
               }
             />
           </label>
+        </div>
+
+        <div className="admin-lock" style={{ marginTop: "12px", background: "rgba(250, 204, 21, 0.08)", border: "1px dashed var(--yellow-border)" }}>
+          <strong style={{ display: "block", color: "var(--yellow-dark)", marginBottom: "4px" }}>
+            🏠 Admin at Home? Use Google Sheets Live Remote Sync!
+          </strong>
+          <p className="quiet" style={{ margin: 0, fontSize: "13px" }}>
+            Import <code>DIPZ-Business-Tracker.xlsx</code> into Google Sheets on Google Drive. Then go to <strong>Extensions &gt; Apps Script</strong>, paste the script code, click <strong>Deploy &gt; Web app (Anyone)</strong>, and paste the generated URL above. Whenever orders are placed at the store, your Google Sheet updates live on your laptop at home!
+          </p>
         </div>
 
         <div className="button-row">
