@@ -917,21 +917,36 @@ function SellScreen({
   refund,
   adminMode,
 }) {
-  const live = (
-    <>
-      {state.stock.remaining === "" ? "Not set" : state.stock.remaining}
-      <span className="stock-extra-list">
-        {products
-          .filter((product) => !["standard", "premium"].includes(product.id))
-          .map((product) => (
-            <span key={product.id}>
-              {product.name}:{" "}
-              {state.stock.products?.[product.id]?.remaining ?? "Not set"}
-            </span>
-          ))}
-      </span>
-    </>
-  );
+  const stockItems = [
+    {
+      id: "banana",
+      name: "Fresh Bananas",
+      icon: "🍌",
+      started: state.stock.started || "Not set",
+      remaining: state.stock.remaining === "" ? "Not set" : state.stock.remaining,
+    },
+    {
+      id: "dragonfruit",
+      name: "Dragonfruit Ice Cream",
+      icon: "🍦",
+      started: state.stock.products?.dragonfruit?.started || "Not set",
+      remaining: state.stock.products?.dragonfruit?.remaining ?? "Not set",
+    },
+    {
+      id: "coconut",
+      name: "Coconut Ice Cream",
+      icon: "🥥",
+      started: state.stock.products?.coconut?.started || "Not set",
+      remaining: state.stock.products?.coconut?.remaining ?? "Not set",
+    },
+    {
+      id: "marshmallow",
+      name: "Chocolate Marshmallows",
+      icon: "🍡",
+      started: state.stock.products?.marshmallow?.started || "Not set",
+      remaining: state.stock.products?.marshmallow?.remaining ?? "Not set",
+    },
+  ];
   const current = totals(state.orders);
   const counts = productCounts(state.orders);
   const lowStock = products
@@ -1032,17 +1047,20 @@ function SellScreen({
       </section>
       <section className="panel">
         <h2 className="section-heading">Stock reconciliation</h2>
-        <div className="stock-readout">
-          <div>
-            <span className="result-label">Bananas started</span>
-            <strong className="stock-number">
-              {state.stock.started || "Not set"}
-            </strong>
-          </div>
-          <div>
-            <span className="result-label">Live bananas remaining</span>
-            <strong className="stock-number">{live}</strong>
-          </div>
+        <div className="stock-food-grid">
+          {stockItems.map((item) => (
+            <div key={item.id} className="stock-food-card">
+              <div className="stock-food-header">
+                <span className="stock-food-icon">{item.icon}</span>
+                <span className="stock-food-name">{item.name}</span>
+              </div>
+              <strong className="stock-food-value">{item.remaining}</strong>
+              <span className="stock-food-label">Live remaining</span>
+              <div className="stock-food-footer">
+                <span>Started: <strong>{item.started}</strong></span>
+              </div>
+            </div>
+          ))}
         </div>
         <p className="field-help">
           Admin submits the physical closing count in Settings at day end.
