@@ -923,28 +923,47 @@ select option {
 /* Product Count Breakdown */
 .product-count-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
   margin-top: 16px;
 }
 
+.product-count-card,
 .product-count-grid span {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  padding: 14px 12px;
   color: var(--text-secondary);
   background: #ffffff;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  font-size: 11px;
-  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+.product-count-card:hover,
+.product-count-grid span:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.product-count-card strong,
 .product-count-grid strong {
   color: var(--yellow-dark);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
+  line-height: 1;
+}
+
+.product-count-card .product-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
 }
 
 /* Orders List Rows */

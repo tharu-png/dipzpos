@@ -573,6 +573,61 @@ function App() {
       handleSync(state.orders, newStock);
     }
   };
+  const handleUpdateStock = () => {
+    let newStock = { ...state.stock };
+    let hasChanges = false;
+
+    if (opening !== "") {
+      const value = Number(opening);
+      if (!Number.isInteger(value) || value < 0) {
+        return notify("Enter a valid opening banana count.");
+      }
+      newStock.started = String(value);
+      if (!newStock.remaining || newStock.remaining === "") {
+        newStock.remaining = String(value);
+      }
+      hasChanges = true;
+    }
+
+    if (otherOpening && Object.keys(otherOpening).length > 0) {
+      const products = { ...(newStock.products || {}) };
+      Object.entries(otherOpening).forEach(([id, count]) => {
+        if (count !== "") {
+          const num = Number(count);
+          if (Number.isInteger(num) && num >= 0) {
+            products[id] = { started: String(num), remaining: String(num) };
+            hasChanges = true;
+          }
+        }
+      });
+      newStock.products = products;
+    }
+
+    if (closing !== "") {
+      const value = Number(closing);
+      if (!Number.isInteger(value) || value < 0) {
+        return notify("Enter a valid closing banana count.");
+      }
+      newStock.closing = String(value);
+      newStock.submitted = true;
+      hasChanges = true;
+    }
+
+    if (!hasChanges) {
+      finishAdmin();
+      return notify("No stock changes entered.");
+    }
+
+    setState((current) => ({
+      ...current,
+      stock: newStock,
+    }));
+    finishAdmin();
+    notify("Stock updated successfully and controls locked.");
+    if (state.settings.autoSyncEnabled !== false) {
+      handleSync(state.orders, newStock);
+    }
+  };
   const checkout = () => {
     if (!state.cart.length) return;
     if (
@@ -822,6 +877,7 @@ function App() {
             setOtherOpening={setOtherOpening}
             startShift={startShift}
             submitClosing={submitClosing}
+            handleUpdateStock={handleUpdateStock}
             finishAdmin={finishAdmin}
             exportData={exportData}
             importData={importData}
@@ -955,9 +1011,9 @@ function SellScreen({
         </div>
         <div className="product-count-grid">
           {products.map((product) => (
-            <span key={product.id}>
+            <span key={product.id} className="product-count-card">
               <strong>{counts[product.id] || 0}</strong>
-              {product.name}
+              <span className="product-name">{product.name}</span>
             </span>
           ))}
         </div>
@@ -1570,6 +1626,7 @@ function Settings({
   setOtherOpening,
   startShift,
   submitClosing,
+  handleUpdateStock,
   finishAdmin,
   exportData,
   importData,
@@ -1816,11 +1873,8 @@ function Settings({
               ))}
             </div>
             <div className="button-row">
-              <button className="action-button primary" onClick={startShift}>
-                Save opening stock
-              </button>
-              <button className="action-button primary" onClick={submitClosing}>
-                Submit closing count
+              <button className="action-button primary" onClick={handleUpdateStock}>
+                Update stock
               </button>
               <button className="action-button" onClick={finishAdmin}>
                 Lock controls
