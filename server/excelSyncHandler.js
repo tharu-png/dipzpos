@@ -11,6 +11,8 @@ export async function updateExcelTracker(payload) {
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(FILE_PATH);
+  
+  // ── 1. Update "Daily Sales" sheet (Exactly 1 row per date) ─────────
   const ws = wb.getWorksheet('Daily Sales');
   if (!ws) {
     throw new Error('Daily Sales sheet not found in workbook.');
@@ -20,6 +22,7 @@ export async function updateExcelTracker(payload) {
   const targetDate = new Date(targetDateStr + 'T00:00:00.000Z');
 
   let targetRowNumber = -1;
+  let firstEmptyRow = -1;
   const maxRow = Math.max(ws.rowCount, 100);
   
   // Search existing rows for matching date
@@ -28,8 +31,8 @@ export async function updateExcelTracker(payload) {
     const cellA = row.getCell(1).value;
     
     if (!cellA && cellA !== 0) {
-      if (targetRowNumber === -1) targetRowNumber = r;
-      break;
+      if (firstEmptyRow === -1) firstEmptyRow = r;
+      continue;
     }
     
     let rowDateStr = '';
@@ -49,7 +52,7 @@ export async function updateExcelTracker(payload) {
   }
 
   if (targetRowNumber === -1) {
-    targetRowNumber = ws.rowCount + 1;
+    targetRowNumber = (firstEmptyRow !== -1) ? firstEmptyRow : (ws.rowCount + 1);
   }
 
   const row = ws.getRow(targetRowNumber);
@@ -97,13 +100,64 @@ export async function updateExcelTracker(payload) {
   row.getCell(17).value = { formula: `IF(P${r}="","",IF(P${r}=0,"OK","CHECK"))` };
 
   row.commit();
+
+  // ── 2. Update "Intraday Orders" sheet (Individual orders log) ─────
+  let ordersSheet = wb.getWorksheet('Intraday Orders');
+  if (!ordersSheet) {
+    ordersSheet = wb.addWorksheet('Intraday Orders');
+    const headerRow = ordersSheet.getRow(1);
+    headerRow.values = [
+      'Date', 'Time', 'Order ID', 'Items Breakdown', 'Total (LKR)', 'Payment Method', 'Cash Received', 'Change', 'Status'
+    ];
+    headerRow.font = { bold: true, color: { argb: 'FF713F12' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFEF08A' }
+    };
+    headerRow.commit();
+  }
+
+  if (Array.isArray(payload.orders) && payload.orders.length > 0) {
+    const existingOrderRows = {};
+    for (let i = 2; i <= ordersSheet.rowCount; i++) {
+      const orderIdVal = ordersSheet.getRow(i).getCell(3).value;
+      if (orderIdVal) {
+        existingOrderRows[String(orderIdVal).trim()] = i;
+      }
+    }
+
+    payload.orders.forEach((o) => {
+      if (!o || !o.id) return;
+      const orderId = String(o.id).trim();
+      const timeStr = o.timestamp ? new Date(o.timestamp).toLocaleTimeString('en-LK') : '';
+      
+      const targetOrderRowNumber = existingOrderRows[orderId] || (ordersSheet.rowCount + 1);
+      const orderRow = ordersSheet.getRow(targetOrderRowNumber);
+      
+      orderRow.getCell(1).value = payload.date;
+      orderRow.getCell(2).value = timeStr;
+      orderRow.getCell(3).value = orderId;
+      orderRow.getCell(4).value = o.itemsSummary || o.items || '';
+      orderRow.getCell(5).value = Number(o.total || 0);
+      orderRow.getCell(6).value = o.paymentMethod || 'cash';
+      orderRow.getCell(7).value = Number(o.received || o.total || 0);
+      orderRow.getCell(8).value = Number(o.change || 0);
+      orderRow.getCell(9).value = o.status || 'completed';
+      orderRow.commit();
+
+      existingOrderRows[orderId] = targetOrderRowNumber;
+    });
+  }
+
   await wb.xlsx.writeFile(FILE_PATH);
   
   return { 
     success: true, 
-    row: targetRowNumber, 
+    dailyRow: targetRowNumber, 
     date: targetDateStr, 
     file: 'DIPZ-Business-Tracker.xlsx',
+    ordersLogged: (payload.orders || []).length,
     updatedAt: new Date().toISOString()
   };
 }

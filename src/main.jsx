@@ -284,6 +284,18 @@ async function triggerSpreadsheetSync(orders, stock, settings) {
     cashCollected,
     digitalCollected,
     notes: `POS sync at ${new Date().toLocaleTimeString("en-LK")}`,
+    orders: (orders || []).map((o) => ({
+      id: o.id,
+      timestamp: o.timestamp,
+      itemsSummary: (o.items || [])
+        .map((i) => `${i.quantity}x ${i.name || i.product}`)
+        .join(", "),
+      total: Number(o.total || 0),
+      paymentMethod: o.payment?.method || "cash",
+      received: Number(o.payment?.received || o.total || 0),
+      change: Number(o.payment?.change || 0),
+      status: o.status || "completed",
+    })),
   };
 
   let localSuccess = false;
@@ -783,7 +795,15 @@ function App() {
           />
         )}
         {screen === "history" && (
-          <HistoryScreen history={state.history} setReceipt={setReceipt} />
+          <HistoryScreen
+            history={state.history}
+            currentOrders={state.orders}
+            currentDate={state.activeDate}
+            stock={state.stock}
+            setReceipt={setReceipt}
+            refund={refund}
+            adminMode={adminMode}
+          />
         )}
         {screen === "reports" && <Reports orders={state.orders} />}
         {screen === "settings" && (
@@ -1185,64 +1205,284 @@ function OrderList({
   );
 }
 
-function HistoryScreen({ history, setReceipt }) {
-  const [selected, setSelected] = useState(null);
-  if (selected)
-    return (
-      <section className="page">
-        <button
-          className="action-button back-button"
-          onClick={() => setSelected(null)}
-        >
-          ← Back to history
-        </button>
-        <div className="panel">
-          <h2 className="section-heading">{dateLabel(selected.date)}</h2>
-          <div className="summary-grid">
-            <Summary label="Orders" value={selected.orders.length} />
-            <Summary label="Revenue" value={money(selected.totals.revenue)} />
-          </div>
-          <div className="recon-result matches">
-            Stock {selected.reconciliation.status}:{" "}
-            {selected.reconciliation.remaining} bananas counted.
-          </div>
-          <OrderList
-            orders={selected.orders}
-            setReceipt={setReceipt}
-            readOnly
-          />
-        </div>
-      </section>
+function HistoryScreen({
+  history = [],
+  currentOrders = [],
+  currentDate = todayKey(),
+  stock = {},
+  setReceipt,
+  refund,
+  adminMode,
+}) {
+  const [viewMode, setViewMode] = useState("intraday");
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedDate, setSelectedDate] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const todayEntry = {
+    date: currentDate,
+    isToday: true,
+    orders: currentOrders,
+    totals: totals(currentOrders),
+    reconciliation: {
+      status: stock.submitted ? "counted" : "in progress",
+      remaining: stock.remaining || stock.started || 0,
+    },
+  };
+
+  const allDays = [
+    todayEntry,
+    ...history.filter((h) => h.date !== currentDate),
+  ];
+
+  const availableMonths = [
+    ...new Set(allDays.map((d) => d.date?.slice(0, 7)).filter(Boolean)),
+  ].sort().reverse();
+
+  const availableDates = [
+    ...new Set(allDays.map((d) => d.date).filter(Boolean)),
+  ].sort().reverse();
+
+  const filteredDays = allDays.filter((day) => {
+    if (selectedMonth !== "all" && !day.date.startsWith(selectedMonth)) return false;
+    if (selectedDate !== "all" && day.date !== selectedDate) return false;
+    return true;
+  });
+
+  const allOrdersList = filteredDays.flatMap((day) =>
+    (day.orders || []).map((order) => ({
+      ...order,
+      orderDate: day.date,
+      isToday: day.isToday || false,
+    }))
+  );
+
+  const filteredOrders = allOrdersList.filter((order) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const idMatch = (order.id || "").toLowerCase().includes(q);
+    const itemMatch = (order.items || []).some((i) =>
+      (i.name || i.product || "").toLowerCase().includes(q)
     );
+    const methodMatch = (order.payment?.method || "").toLowerCase().includes(q);
+    return idMatch || itemMatch || methodMatch;
+  });
+
+  const totalFilteredRevenue = filteredOrders
+    .filter((o) => o.status !== "refunded")
+    .reduce((sum, o) => sum + Number(o.total || 0), 0);
+
   return (
     <section className="page">
-      <h2 className="section-heading">Past days</h2>
-      <div className="panel">
-        <ul className="history-list">
-          {history.length ? (
-            history.map((day) => (
-              <li key={`${day.date}-${day.orders[0]?.id || "empty"}`}>
-                <button
-                  className="history-row"
-                  onClick={() => setSelected(day)}
-                >
-                  <span>
-                    <span className="history-date">{dateLabel(day.date)}</span>
-                    <span className="history-meta">
-                      {day.orders.length} orders · {money(day.totals.revenue)}
-                    </span>
-                  </span>
-                  <span className={`status ${day.reconciliation.status}`}>
-                    {day.reconciliation.status}
-                  </span>
-                </button>
-              </li>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "16px" }}>
+        <div>
+          <h2 className="section-heading" style={{ margin: 0 }}>Sales & Order History</h2>
+          <p className="quiet" style={{ margin: "4px 0 0", fontSize: "13px" }}>
+            View daily cumulative summaries and inspect individual intraday bills with order IDs.
+          </p>
+        </div>
+
+        <div className="history-view-tabs">
+          <button
+            type="button"
+            className={`history-tab-btn ${viewMode === "intraday" ? "active" : ""}`}
+            onClick={() => setViewMode("intraday")}
+          >
+            🧾 Intraday Orders ({filteredOrders.length})
+          </button>
+          <button
+            type="button"
+            className={`history-tab-btn ${viewMode === "daily" ? "active" : ""}`}
+            onClick={() => setViewMode("daily")}
+          >
+            📊 Daily Sales ({filteredDays.length} Days)
+          </button>
+        </div>
+      </div>
+
+      <div className="history-filter-bar">
+        <div className="filter-group">
+          <label>Filter Month</label>
+          <select
+            className="filter-select"
+            value={selectedMonth}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setSelectedDate("all");
+            }}
+          >
+            <option value="all">All Months</option>
+            {availableMonths.map((m) => {
+              const label = new Date(`${m}-01T12:00:00`).toLocaleDateString("en-LK", {
+                month: "long",
+                year: "numeric",
+              });
+              return (
+                <option key={m} value={m}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label>Filter Date</label>
+          <select
+            className="filter-select"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+          >
+            <option value="all">All Dates</option>
+            {availableDates
+              .filter((d) => selectedMonth === "all" || d.startsWith(selectedMonth))
+              .map((d) => (
+                <option key={d} value={d}>
+                  {d === currentDate ? `Today (${dateLabel(d)})` : dateLabel(d)}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div className="filter-group" style={{ flex: "1 1 200px" }}>
+          <label>Search Orders</label>
+          <input
+            type="text"
+            className="filter-search-input"
+            placeholder="Search by Order ID (e.g. DIPZ-001) or item..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        {(selectedMonth !== "all" || selectedDate !== "all" || searchQuery) && (
+          <button
+            type="button"
+            className="action-button"
+            style={{ alignSelf: "flex-end", height: "36px", padding: "0 12px", fontSize: "12px" }}
+            onClick={() => {
+              setSelectedMonth("all");
+              setSelectedDate("all");
+              setSearchQuery("");
+            }}
+          >
+            Reset Filters
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "0 4px" }}>
+        <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-secondary)" }}>
+          Showing {filteredOrders.length} order{filteredOrders.length === 1 ? "" : "s"} across {filteredDays.length} day{filteredDays.length === 1 ? "" : "s"}
+        </span>
+        <span style={{ fontSize: "15px", fontWeight: "800", color: "var(--text-primary)" }}>
+          Total Revenue: <strong style={{ color: "var(--yellow-dark)" }}>{money(totalFilteredRevenue)}</strong>
+        </span>
+      </div>
+
+      {viewMode === "intraday" && (
+        <div className="panel" style={{ padding: "16px" }}>
+          {filteredOrders.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {filteredOrders.map((order) => {
+                const itemsCount = orderCount(order);
+                const itemsDesc = (order.items || [])
+                  .map((i) => `${i.quantity}× ${i.name || i.product}`)
+                  .join(", ");
+                return (
+                  <div key={`${order.orderDate}-${order.id}`} className="intraday-order-item">
+                    <div className="order-main-info">
+                      <span className="order-badge-id">#{order.id}</span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)" }}>
+                          {dateLabel(order.orderDate)} · {timeLabel(order.timestamp)}
+                          {order.isToday && <span className="today-badge" style={{ marginLeft: "8px", fontSize: "10px" }}>Today</span>}
+                        </span>
+                        <span className="order-items-preview" title={itemsDesc}>
+                          {itemsCount} item{itemsCount === 1 ? "" : "s"}: {itemsDesc}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="order-meta-info">
+                      <span className={`payment-pill ${order.payment?.method || "cash"}`}>
+                        {order.payment?.method === "card" ? "💳 Card" : "💵 Cash"}
+                      </span>
+                      <span className="order-price-tag" style={{ color: order.status === "refunded" ? "#dc2626" : "var(--text-primary)" }}>
+                        {order.status === "refunded" ? "REFUNDED" : money(order.total)}
+                      </span>
+                      <button
+                        type="button"
+                        className="action-button"
+                        style={{ padding: "6px 14px", fontSize: "12px", fontWeight: "700" }}
+                        onClick={() => setReceipt(order)}
+                      >
+                        📄 View Bill
+                      </button>
+                      {adminMode && order.status !== "refunded" && typeof refund === "function" && (
+                        <button
+                          type="button"
+                          className="action-button danger"
+                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          onClick={() => refund(order.id)}
+                        >
+                          Refund
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-state" style={{ padding: "40px 20px" }}>
+              No orders matched your filter.
+            </div>
+          )}
+        </div>
+      )}
+
+      {viewMode === "daily" && (
+        <div>
+          {filteredDays.length ? (
+            filteredDays.map((day) => (
+              <div key={day.date} className="daily-card">
+                <div className="daily-card-header">
+                  <div className="daily-card-date">
+                    📅 {dateLabel(day.date)}
+                    {day.isToday && <span className="today-badge">Active Shift / Today</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className="action-button"
+                    style={{ fontSize: "12px", padding: "6px 14px", fontWeight: "700" }}
+                    onClick={() => {
+                      setSelectedDate(day.date);
+                      setViewMode("intraday");
+                    }}
+                  >
+                    🔍 Inspect {day.orders.length} Bills
+                  </button>
+                </div>
+
+                <div className="summary-grid" style={{ marginBottom: "12px" }}>
+                  <Summary label="Orders Count" value={day.orders.length} />
+                  <Summary label="Total Revenue" value={money(day.totals.revenue)} />
+                  <Summary label="Standard Sold" value={day.totals.standard || 0} />
+                  <Summary label="Premium Sold" value={day.totals.premium || 0} />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "var(--text-secondary)", paddingTop: "8px", borderTop: "1px dashed var(--border)" }}>
+                  <span>Reconciliation: <strong>{day.reconciliation.status}</strong> ({day.reconciliation.remaining} counted)</span>
+                  <span>Row synced with Google Sheets & Excel</span>
+                </div>
+              </div>
             ))
           ) : (
-            <li className="empty-state">No finished days yet.</li>
+            <div className="panel empty-state">No days found for this selection.</div>
           )}
-        </ul>
-      </div>
+        </div>
+      )}
     </section>
   );
 }
