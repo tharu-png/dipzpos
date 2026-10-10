@@ -1576,6 +1576,58 @@ function Settings({
   handleSync,
   syncInfo,
 }) {
+  // ── PIN gate: entire settings page is locked unless admin is unlocked ──
+  if (!adminMode) {
+    return (
+      <section className="page">
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "60vh",
+          gap: "24px",
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "40px 36px",
+            width: "100%",
+            maxWidth: "380px",
+            textAlign: "center",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.07)",
+          }}>
+            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🔒</div>
+            <h2 style={{ margin: "0 0 6px", fontSize: "20px", fontWeight: "800", color: "var(--text-primary)" }}>
+              Admin Access Required
+            </h2>
+            <p className="quiet" style={{ margin: "0 0 24px", fontSize: "13px" }}>
+              Settings are protected. Enter your admin PIN to continue.
+            </p>
+            <input
+              type="password"
+              className="payment-input"
+              placeholder="Enter admin PIN"
+              value={adminPinEntry}
+              onChange={(e) => setAdminPinEntry(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && unlockAdmin()}
+              autoFocus
+              style={{ textAlign: "center", fontSize: "20px", letterSpacing: "6px", marginBottom: "14px" }}
+            />
+            <button
+              className="action-button primary"
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={unlockAdmin}
+            >
+              🔓 Unlock Settings
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="page">
       <h2 className="section-heading">Settings</h2>
